@@ -2019,3 +2019,20 @@ describe("Uint8Array callback methods", () => {
     ).toEqual([0, 2, -1, 0, 2])
   })
 })
+
+describe("Uint8Array.from mapper", () => {
+  // The mapping function and thisArg used to be ignored, silently producing
+  // different bytes than JavaScript (e.g. [300, 2] mapped with v/2 + i gives
+  // [150, 2] in JS, but [44, 2] when the iterator values are clamped directly).
+  test("applies the mapping function and thisArg", async () => {
+    expect(await value(`return [...Uint8Array.from([300, 2], (v, i) => v / 2 + i)]`)).toEqual([150, 2])
+  })
+
+  test("throws for a non-callable mapper", async () => {
+    expect((await error(`Uint8Array.from([1], 42)`)).message).toBeTruthy()
+  })
+
+  test("keeps the no-mapper behaviour", async () => {
+    expect(await value(`return [...Uint8Array.from([1, 2, 3])]`)).toEqual([1, 2, 3])
+  })
+})

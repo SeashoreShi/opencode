@@ -18,6 +18,7 @@ import {
 } from "../interpreter/objects.js"
 import { describeValue } from "../interpreter/references.js"
 import type { Interpreter } from "../interpreter/interpreter.js"
+import { applyCollectionCallback } from "../interpreter/callback.js"
 import { callbackMethods, sortArray } from "./array.js"
 
 /** The bytes a Uint8Array, array, or other iterable of numbers describes; the host array clamps each value. */
@@ -70,7 +71,44 @@ export const uint8ArrayGlobal = <R>(ctx: Interpreter<R>) => {
     }
   }
   methods(builtins, uint8Array, [
-    ["from", 1, (_, args) => Effect.map(collectBytes(ctx, args[0], "Uint8Array.from"), wrap)],
+    [
+      "from",
+      3,
+      (_, args) =>
+        Effect.gen(function* () {
+          // Unlike the constructor, `from` maps the *source* values and only
+          // then clamps each result to a byte: `Uint8Array.from([300, 2], v => v / 2)`
+          // is [150, 2] in JS, not [22, 2].
+          const apply =
+            args[1] === undefined ? undefined : applyCollectionCallback(ctx, args[1], "Uint8Array.from")
+          const map = (value: Value, index: number) =>
+            apply === undefined
+              ? Effect.succeed(coerceToNumber(value))
+              : Effect.map(apply([value, index], args[2]), coerceToNumber)
+          const source = args[0]
+          if (source instanceof Bytes) {
+            const values: Array<number> = []
+            values.length = source.bytes.length
+            for (let index = 0; index < source.bytes.length; index += 1) {
+              values[index] = yield* map(source.bytes[index], index)
+            }
+            return wrap(Uint8Array.from(values))
+          }
+          const cursor = yield* ctx.iterate(source)
+          if (cursor === undefined) {
+            throw typeError(
+              `Uint8Array.from expects a Uint8Array, an array, or an iterable of numbers, received ${describeValue(source)}.`,
+            )
+          }
+          const values: Array<number> = []
+          while (true) {
+            const step = yield* cursor.next
+            if (step.done) return wrap(Uint8Array.from(values))
+            values.push(yield* map(step.value, values.length))
+            checkArrayLength(values.length)
+          }
+        }),
+    ],
     ["of", 0, (_, args) => wrap(Uint8Array.from(args, coerceToNumber))],
     ["fromBase64", 1, (_, args) => decode("fromBase64", args, (text) => Uint8Array.fromBase64(text))],
     ["fromHex", 1, (_, args) => decode("fromHex", args, (text) => Uint8Array.fromHex(text))],
