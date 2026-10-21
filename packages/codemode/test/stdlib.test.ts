@@ -2106,3 +2106,11 @@ describe("CodeMode whole-program function expression", () => {
     expect(await value(`return 7`)).toBe(7)
   })
 })
+
+describe("CodeMode does not invoke incidental function values", () => {
+  // Only a bare function expression program is invoked; a function that is just
+  // a value must not run (it would execute code the program never asked for).
+  test("leaves a returned function value uncalled", async () => {
+    expect(await value(`const f = async () => 42; return f`)).toBe(null)
+  })
+})
