@@ -4,7 +4,7 @@ import type { DataValue, Diagnostic, ResolvedExecutionLimits, Result } from "../
 import { toBoundary } from "../data.js"
 import { ToolRuntime } from "../tool-runtime.js"
 import { normalizeError } from "./errors.js"
-import type { Value } from "./objects.js"
+import { Callable, type Value } from "./objects.js"
 import { createBuiltins } from "./intrinsics.js"
 import { Pending } from "./promises.js"
 import { Interpreter } from "./interpreter.js"
@@ -43,7 +43,12 @@ export const executeProgram = <R>(
           // The main job holds the turn until leftover promise work is interrupted.
           return yield* pending.turn.hold(
             Effect.gen(function* () {
-              const result = (yield* toBoundary(ctx, yield* ctx.run(program))) ?? null
+              // A whole-program function expression (`async () => {...}` /
+              // `async (tools) => {...}`) evaluates to a callable; invoke it so
+              // the code runs instead of silently resolving to null.
+              const evaluated = yield* ctx.run(program)
+              const value = evaluated instanceof Callable ? yield* ctx.call(evaluated, null, []) : evaluated
+              const result = (yield* toBoundary(ctx, value)) ?? null
               returned = { value: result, pending }
               const warnings = yield* pending.interrupt()
               return {
